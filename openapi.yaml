@@ -1,0 +1,531 @@
+openapi: 3.0.0
+info:
+  title: Insurance Management API
+  version: 1.0.0
+  description: |
+    REST API pro evidenci pojistek a pojistných událostí.
+    Umožňuje správu klientů, pojistných smluv, událostí a připojených dokumentů.
+    Součástí systému je autentizace přes JWT tokeny a rozdělení přístupů dle rolí (správce, makléř, likvidátor, klient).
+
+servers:
+  - url: http://localhost:8080
+    description: Lokální vývoj
+  - url: https://api.pojisteni.example.cz
+    description: Produkční prostředí
+
+tags:
+  - name: Clients
+    description: Správa pojištěných osob
+  - name: Policies
+    description: Správa pojistných smluv
+  - name: Claims
+    description: Evidence pojistných událostí
+  - name: Documents
+    description: Připojené dokumenty k událostem
+  - name: Auth
+    description: Autentizace uživatelů
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          example: VALIDATION_ERROR
+        message:
+          type: string
+          example: Povinné pole chybí.
+
+    Client:
+      type: object
+      required: [id, firstName, lastName, birthDate]
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 9f3b0fa3-62a9-47b3-a2b1-83c1f7a2d15a
+        firstName:
+          type: string
+          example: Jan
+        lastName:
+          type: string
+          example: Novák
+        birthDate:
+          type: string
+          format: date
+          example: 1990-05-10
+        type:
+          type: string
+          enum: [Fyzická osoba, Právnická osoba]
+          example: Fyzická osoba
+        createdAt:
+          type: string
+          format: date-time
+          example: 2025-10-22T12:00:00Z
+
+    ClientCreate:
+      type: object
+      required: [firstName, lastName, birthDate]
+      properties:
+        firstName:
+          type: string
+          minLength: 2
+        lastName:
+          type: string
+          minLength: 2
+        birthDate:
+          type: string
+          format: date
+        type:
+          type: string
+          enum: [Fyzická osoba, Právnická osoba]
+
+    Policy:
+      type: object
+      required: [id, number, insuredId, amount, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        number:
+          type: string
+          example: POL-2025-001
+        insuredId:
+          type: string
+          format: uuid
+        lineOfBusiness:
+          type: string
+          example: Majetkové pojištění
+        amount:
+          type: number
+          example: 250000
+        paymentInterval:
+          type: string
+          enum: [měsíčně, čtvrtletně, ročně]
+          example: měsíčně
+        status:
+          type: string
+          enum: [aktivní, pozastavená, ukončená]
+          example: aktivní
+        createdAt:
+          type: string
+          format: date-time
+        validTo:
+          type: string
+          format: date
+          example: 2026-05-01
+
+    PolicyCreate:
+      type: object
+      required: [number, insuredId, amount, lineOfBusiness]
+      properties:
+        number:
+          type: string
+        insuredId:
+          type: string
+        lineOfBusiness:
+          type: string
+        amount:
+          type: number
+        paymentInterval:
+          type: string
+          enum: [měsíčně, čtvrtletně, ročně]
+
+    Claim:
+      type: object
+      required: [id, policyId, description, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        policyId:
+          type: string
+          format: uuid
+        description:
+          type: string
+          example: Poškozená střecha po bouři
+        estimatedDamage:
+          type: number
+          example: 120000
+        payout:
+          type: number
+          example: 95000
+        status:
+          type: string
+          enum: [nahlášeno, vyřizuje se, uzavřeno]
+          example: vyřizuje se
+        createdAt:
+          type: string
+          format: date-time
+        photos:
+          type: array
+          items:
+            type: string
+            format: uri
+
+    ClaimCreate:
+      type: object
+      required: [policyId, description]
+      properties:
+        policyId:
+          type: string
+        description:
+          type: string
+        estimatedDamage:
+          type: number
+
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          example: admin
+        password:
+          type: string
+          example: heslo123
+
+    LoginResponse:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+
+paths:
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Přihlášení uživatele a získání JWT tokenu
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Úspěšné přihlášení
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginResponse' }
+        '401':
+          description: Neplatné přihlašovací údaje
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /clients:
+    get:
+      tags: [Clients]
+      summary: Získat seznam klientů
+      parameters:
+        - in: query
+          name: q
+          schema: { type: string }
+          description: Fulltext vyhledávání
+        - in: query
+          name: page
+          schema: { type: integer, default: 1, minimum: 1 }
+        - in: query
+          name: pageSize
+          schema: { type: integer, default: 20, maximum: 100 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Client' }
+                  total:
+                    type: integer
+                    example: 12
+        '500':
+          description: Chyba serveru
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+    post:
+      tags: [Clients]
+      summary: Vytvořit nového klienta
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ClientCreate' }
+      responses:
+        '201':
+          description: Klient vytvořen
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Client' }
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /clients/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Clients]
+      summary: Získat detail klienta
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Client' }
+        '404':
+          description: Klient nenalezen
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+    put:
+      tags: [Clients]
+      summary: Upravit klienta
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ClientCreate' }
+      responses:
+        '200':
+          description: Klient upraven
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Client' }
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+    delete:
+      tags: [Clients]
+      summary: Smazat klienta
+      security: [ { bearerAuth: [] } ]
+      responses:
+        '204': { description: Klient smazán }
+        '404':
+          description: Nenalezeno
+
+  /policies:
+    get:
+      tags: [Policies]
+      summary: Seznam pojistných smluv
+      parameters:
+        - in: query
+          name: clientId
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Policy' }
+
+    post:
+      tags: [Policies]
+      summary: Vytvořit novou pojistku
+      security: [ { bearerAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PolicyCreate' }
+      responses:
+        '201':
+          description: Pojistka vytvořena
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Policy' }
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /policies/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Policies]
+      summary: Detail pojistky
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Policy' }
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+    patch:
+      tags: [Policies]
+      summary: Změna stavu pojistky
+      security: [ { bearerAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [aktivní, pozastavená, ukončená]
+      responses:
+        '200':
+          description: Stav změněn
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Policy' }
+
+    delete:
+      tags: [Policies]
+      summary: Smazat pojistku
+      security: [ { bearerAuth: [] } ]
+      responses:
+        '204': { description: Smazáno }
+
+  /claims:
+    get:
+      tags: [Claims]
+      summary: Seznam pojistných událostí
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [nahlášeno, vyřizuje se, uzavřeno]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Claim' }
+
+    post:
+      tags: [Claims]
+      summary: Nahlásit novou pojistnou událost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ClaimCreate' }
+      responses:
+        '201':
+          description: Událost nahlášena
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Claim' }
+
+  /claims/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Claims]
+      summary: Detail pojistné události
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Claim' }
+        '404':
+          description: Nenalezeno
+    patch:
+      tags: [Claims]
+      summary: Aktualizace stavu pojistné události
+      security: [ { bearerAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [nahlášeno, vyřizuje se, uzavřeno]
+      responses:
+        '200':
+          description: Stav změněn
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Claim' }
+
+  /claims/{id}/documents:
+    post:
+      tags: [Documents]
+      summary: Nahrát dokument k události
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '201': { description: Dokument nahrán }
+        '400':
+          description: Chybný formát souboru
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /claims/stats:
+    get:
+      tags: [Claims]
+      summary: Statistiky pojistných událostí
+      description: |
+        Vrací základní přehled — počet nahlášených, uzavřených událostí a celkovou výši plnění.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  totalClaims: { type: integer, example: 45 }
+                  openClaims: { type: integer, example: 12 }
+                  closedClaims: { type: integer, example: 33 }
+                  totalPayout: { type: number, example: 1950000 }
